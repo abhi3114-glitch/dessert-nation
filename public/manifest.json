@@ -1,0 +1,21 @@
+{
+  "short_name": "Dessert POS",
+  "name": "Dessert Nation Café POS & Sales",
+  "icons": [
+    {
+      "src": "/logo.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/logo.jpg",
+      "type": "image/jpeg",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#1C0D0A",
+  "theme_color": "#1C0D0A",
+  "display": "standalone",
+  "orientation": "portrait"
+}

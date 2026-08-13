@@ -1,0 +1,165 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { User, Business } from '../types/pos';
+import { DEFAULT_USERS, DEFAULT_BUSINESS } from '../data/defaultMenu';
+import { localDB } from '../db/indexedDB';
+
+interface AuthContextType {
+  currentUser: User | null;
+  currentBusiness: Business;
+  users: User[];
+  login: (phoneOrEmail: string, password?: string) => boolean;
+  logout: () => void;
+  switchUser: (userId: string) => void;
+  addUser: (userData: { name: string; email: string; role: 'owner' | 'employee'; phone?: string; password?: string }) => Promise<User>;
+  toggleUserStatus: (userId: string) => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [users, setUsers] = useState<User[]>(DEFAULT_USERS);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem('dn_pos_current_user');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {}
+    return DEFAULT_USERS[1]; // Default to Employee Rahul
+  });
+  const [currentBusiness] = useState<Business>(DEFAULT_BUSINESS);
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const loadUsers = async () => {
+    try {
+      const dbUsers = await localDB.getUsers();
+      if (dbUsers.length > 0) {
+        setUsers(dbUsers);
+        if (currentUser) {
+          const found = dbUsers.find((u) => u.id === currentUser.id);
+          if (found) {
+            setCurrentUser(found);
+            localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load users:', e);
+    }
+  };
+
+  const login = (phoneOrEmail: string, password?: string): boolean => {
+    const query = phoneOrEmail.trim().toLowerCase().replace(/[\s\-\+]/g, '');
+
+    const user = users.find((u) => {
+      if (!u.active) return false;
+      const cleanPhone = (u.phone || '').replace(/[\s\-\+]/g, '').toLowerCase();
+      const cleanEmail = (u.email || '').toLowerCase();
+      
+      const isMatch = cleanPhone === query || cleanPhone.endsWith(query) || cleanEmail === query;
+      if (!isMatch) return false;
+
+      // If user has password set, verify it (or accept default password123)
+      if (password) {
+        const targetPass = u.password || 'password123';
+        return password === targetPass || password === 'password123';
+      }
+      return true;
+    });
+
+    if (user) {
+      setCurrentUser(user);
+      localStorage.setItem('dn_pos_current_user', JSON.stringify(user));
+      return true;
+    }
+    return false;
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('dn_pos_current_user');
+  };
+
+  const switchUser = (userId: string) => {
+    const target = users.find((u) => u.id === userId);
+    if (target) {
+      setCurrentUser(target);
+      localStorage.setItem('dn_pos_current_user', JSON.stringify(target));
+    }
+  };
+
+  const addUser = async (userData: {
+    name: string;
+    email: string;
+    role: 'owner' | 'employee';
+    phone?: string;
+    password?: string;
+  }): Promise<User> => {
+    const newUser: User = {
+      id: `user_${Date.now()}`,
+      businessId: currentBusiness.id,
+      name: userData.name,
+      email: userData.email,
+      role: userData.role,
+      phone: userData.phone || '',
+      password: userData.password || 'password123',
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    await localDB.saveUser(newUser);
+    setUsers((prev) => [...prev, newUser]);
+
+    // Also sync to backend if online
+    fetch('/api/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newUser),
+    }).catch(() => {});
+
+    return newUser;
+  };
+
+  const toggleUserStatus = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return;
+
+    const updatedUser = { ...target, active: !target.active };
+    await localDB.saveUser(updatedUser);
+    setUsers((prev) => prev.map((u) => (u.id === userId ? updatedUser : u)));
+
+    fetch(`/api/employees/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: updatedUser.active }),
+    }).catch(() => {});
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        currentUser,
+        currentBusiness,
+        users,
+        login,
+        logout,
+        switchUser,
+        addUser,
+        toggleUserStatus,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
