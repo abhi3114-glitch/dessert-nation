@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, Business } from '../types/pos';
 import { DEFAULT_USERS, DEFAULT_BUSINESS } from '../data/defaultMenu';
 import { localDB } from '../db/indexedDB';
@@ -24,6 +24,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>(DEFAULT_USERS);
+  // Keep a ref so login() always reads the latest users without stale closure
+  const usersRef = useRef<User[]>(DEFAULT_USERS);
 
   // Start with null — require explicit login
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -40,6 +42,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [currentBusiness] = useState<Business>(DEFAULT_BUSINESS);
 
+  // Keep usersRef in sync whenever users state changes
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
   useEffect(() => {
     loadUsers();
   }, []);
@@ -47,15 +54,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadUsers = async () => {
     try {
       // 1. Load from IndexedDB first (offline-first)
-      const dbUsers = await localDB.getUsers();
-      if (dbUsers.length > 0) {
-        setUsers(dbUsers);
-        if (currentUser) {
-          const found = dbUsers.find((u) => u.id === currentUser.id);
-          if (found) {
-            setCurrentUser(found);
-            localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
-          }
+      let dbUsers = await localDB.getUsers();
+
+      if (dbUsers.length === 0) {
+        // First launch: seed DEFAULT_USERS into IndexedDB so offline login works
+        for (const u of DEFAULT_USERS) {
+          await localDB.saveUser(u);
+        }
+        dbUsers = DEFAULT_USERS;
+      }
+
+      setUsers(dbUsers);
+      usersRef.current = dbUsers;
+
+      if (currentUser) {
+        const found = dbUsers.find((u) => u.id === currentUser.id);
+        if (found) {
+          setCurrentUser(found);
+          localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
         }
       }
 
@@ -64,15 +80,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const sbUsers = await sbFetchUsers();
 
         if (sbUsers.length === 0) {
-          // First launch: seed default users into Supabase
+          // First launch on cloud: seed default users into Supabase
           for (const u of DEFAULT_USERS) {
             await sbUpsertUser(u);
-            await localDB.saveUser(u);
           }
           setUsers(DEFAULT_USERS);
+          usersRef.current = DEFAULT_USERS;
         } else {
           // Use cloud users, cache locally
           setUsers(sbUsers);
+          usersRef.current = sbUsers;
           for (const u of sbUsers) await localDB.saveUser(u);
 
           // Update currentUser if they appear in cloud list
@@ -93,7 +110,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = (phoneOrEmail: string, password?: string): boolean => {
     const query = phoneOrEmail.trim().toLowerCase().replace(/[\s\-\+]/g, '');
 
-    const user = users.find((u) => {
+    // Always read from ref to avoid stale closure bug
+    const currentUsers = usersRef.current;
+
+    const user = currentUsers.find((u) => {
       if (!u.active) return false;
       const cleanPhone = (u.phone || '').replace(/[\s\-\+]/g, '').toLowerCase();
       const cleanEmail = (u.email || '').toLowerCase();
