@@ -58,56 +58,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 1. Load from IndexedDB first (offline-first)
       let dbUsers = await localDB.getUsers();
 
-      if (dbUsers.length === 0) {
-        // First launch: seed DEFAULT_USERS into IndexedDB so offline login works
-        for (const u of DEFAULT_USERS) {
-          await localDB.saveUser(u);
-        }
-        dbUsers = DEFAULT_USERS;
-      }
+      // Filter out the empty placeholder default user (no phone/password set)
+      dbUsers = dbUsers.filter((u) => u.phone && u.password);
 
-      setUsers(dbUsers);
-      usersRef.current = dbUsers;
+      if (dbUsers.length > 0) {
+        setUsers(dbUsers);
+        usersRef.current = dbUsers;
 
-      if (currentUser) {
-        const found = dbUsers.find((u) => u.id === currentUser.id);
-        if (!found || !found.active) {
-          // User was deleted or disabled — invalidate session immediately
-          setCurrentUser(null);
-          localStorage.removeItem('dn_pos_current_user');
-        } else {
-          // Refresh saved session with latest data (e.g. updated name/phone)
-          setCurrentUser(found);
-          localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
+        if (currentUser) {
+          const found = dbUsers.find((u) => u.id === currentUser.id);
+          if (!found || !found.active) {
+            setCurrentUser(null);
+            localStorage.removeItem('dn_pos_current_user');
+          } else {
+            setCurrentUser(found);
+            localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
+          }
         }
       }
 
-      // 2. If Supabase is configured, fetch from cloud
+      // 2. If Supabase is configured, fetch real users from cloud
       if (isSupabaseConfigured && navigator.onLine) {
         const sbUsers = await sbFetchUsers();
+        // Filter to only users with real credentials
+        const realSbUsers = sbUsers.filter((u) => u.phone && u.password);
 
-        if (sbUsers.length === 0) {
-          // First launch on cloud: seed default users into Supabase
-          for (const u of DEFAULT_USERS) {
-            await sbUpsertUser(u);
-          }
-          setUsers(DEFAULT_USERS);
-          usersRef.current = DEFAULT_USERS;
-        } else {
-          // Use cloud users, cache locally
-          setUsers(sbUsers);
-          usersRef.current = sbUsers;
-          for (const u of sbUsers) await localDB.saveUser(u);
+        if (realSbUsers.length > 0) {
+          // Use cloud users as source of truth, cache locally
+          setUsers(realSbUsers);
+          usersRef.current = realSbUsers;
+          for (const u of realSbUsers) await localDB.saveUser(u);
 
           // Validate current session against cloud user list
           if (currentUser) {
-            const found = sbUsers.find((u) => u.id === currentUser.id);
+            const found = realSbUsers.find((u) => u.id === currentUser.id);
             if (!found || !found.active) {
               // Deleted or disabled on the cloud — force logout
               setCurrentUser(null);
               localStorage.removeItem('dn_pos_current_user');
             } else {
-              // Sync latest data (name, phone, role changes)
               setCurrentUser(found);
               localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
             }
