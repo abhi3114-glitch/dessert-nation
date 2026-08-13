@@ -26,7 +26,9 @@ export interface User {
   name: string;
   email: string;
   phone: string;
-  password?: string;
+  password?: string;       // legacy plain text — only used during migration
+  passwordHash?: string;   // SHA-256 hashed password (stored in DB)
+  passwordSalt?: string;   // per-user random salt
   role: UserRole;
   active: boolean;
   avatarUrl?: string;

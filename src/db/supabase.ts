@@ -185,11 +185,20 @@ export async function sbUpsertUser(u: User): Promise<void> {
     name: u.name,
     email: u.email,
     phone: u.phone,
-    password: u.password || 'password123',
+    // Store hash+salt only — never plain text password
+    password: u.passwordHash || u.password || '',
+    password_hash: u.passwordHash || null,
+    password_salt: u.passwordSalt || null,
     role: u.role,
     active: u.active,
     created_at: u.createdAt,
   });
+  if (error) throw error;
+}
+
+export async function sbDeleteUser(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from('users').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -264,7 +273,10 @@ function mapUser(row: Record<string, unknown>): User {
     name: row.name as string,
     email: row.email as string,
     phone: (row.phone as string) || '',
-    password: (row.password as string) || 'password123',
+    // Read hash fields if available, fall back to legacy password field for migration
+    passwordHash: (row.password_hash as string) || undefined,
+    passwordSalt: (row.password_salt as string) || undefined,
+    password: row.password_hash ? undefined : ((row.password as string) || undefined),
     role: row.role as 'owner' | 'employee',
     active: Boolean(row.active),
     createdAt: row.created_at as string,

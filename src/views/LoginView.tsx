@@ -12,19 +12,23 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess }) => {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    const success = login(phoneOrEmail, password);
-    if (success) {
-      onSuccess();
-    } else {
-      setErrorMsg('Invalid phone number/password or inactive account');
+    setLoading(true);
+    try {
+      const success = await login(phoneOrEmail, password);
+      if (success) {
+        onSuccess();
+      } else {
+        setErrorMsg('Invalid phone number/password or inactive account');
+      }
+    } finally {
+      setLoading(false);
     }
   };
-
-
 
   return (
     <div className="min-h-screen bg-cafe-bg flex flex-col items-center justify-center p-4">
@@ -95,10 +99,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess }) => {
 
           <button
             type="submit"
-            className="w-full bg-cafe-caramel hover:bg-cafe-caramel-hover text-white font-black py-3 px-4 rounded-xs text-sm flex items-center justify-center space-x-2 shadow-2xs transition active:scale-98"
+            disabled={loading}
+            className="w-full bg-cafe-caramel hover:bg-cafe-caramel-hover text-white font-black py-3 px-4 rounded-xs text-sm flex items-center justify-center space-x-2 shadow-2xs transition active:scale-98 disabled:opacity-70"
           >
-            <span>Sign In to Café Account</span>
-            <ArrowRight className="w-4 h-4 stroke-[3]" />
+            <span>{loading ? 'Verifying...' : 'Sign In to Café Account'}</span>
+            {!loading && <ArrowRight className="w-4 h-4 stroke-[3]" />}
           </button>
         </form>
 
