@@ -49,7 +49,7 @@ const AppContent: React.FC = () => {
           {activeTab === 'products' && <ProductsView />}
           {activeTab === 'reports' && <ReportsView />}
           {activeTab === 'staff' && <StaffView />}
-          {activeTab === 'settings' && <SettingsView />}
+          {activeTab === 'settings' && <SettingsView onNavigate={setActiveTab} />}
         </main>
       </div>
 
