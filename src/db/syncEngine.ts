@@ -127,6 +127,17 @@ class SyncEngine {
       }
 
       // ── Fallback: REST API server sync (/api/sync) ─────────────────────────
+      // Only attempt if running locally with Express server (not on Vercel/static hosting)
+      const isLocalServer = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isLocalServer) {
+        // On cloud/Vercel without Supabase configured: keep orders in local queue
+        // Show a clear message instead of making failed API calls
+        this.notifyListeners('⚠️ Cloud sync not configured. Add Supabase keys on Vercel to enable sync.');
+        this.isSyncing = false;
+        await this.updatePendingCount();
+        return;
+      }
+
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: {
