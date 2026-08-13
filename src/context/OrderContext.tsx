@@ -4,6 +4,19 @@ import { localDB } from '../db/indexedDB';
 import { syncEngine } from '../db/syncEngine';
 import { useAuth } from './AuthContext';
 import { DEFAULT_PRODUCTS, DEFAULT_CATEGORIES } from '../data/defaultMenu';
+import {
+  isSupabaseConfigured,
+  sbFetchProducts,
+  sbFetchCategories,
+  sbFetchOrders,
+  sbUpsertProduct,
+  sbUpdateProduct as sbPatchProduct,
+  sbDeleteProduct,
+  sbUpdateOrderStatus as sbPatchOrderStatus,
+  sbUpdatePaymentStatus as sbPatchPaymentStatus,
+  sbDeleteOrder as sbRemoveOrder,
+  sbSeedCategories,
+} from '../db/supabase';
 
 interface OrderContextType {
   products: Product[];
@@ -50,7 +63,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Load local data and sync with server
+  // Load local data and sync with cloud
   const refreshData = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -64,53 +77,91 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (localCats.length > 0) setCategories(localCats);
       setOrders(localOrds);
 
-      // Try fetching products, categories, and latest server orders if online
       if (navigator.onLine) {
-        try {
-          const [pRes, cRes, oRes] = await Promise.all([
-            fetch('/api/products'),
-            fetch('/api/categories'),
-            fetch('/api/orders'),
-          ]);
+        // ── Supabase direct sync ──────────────────────────────────────────────
+        if (isSupabaseConfigured) {
+          try {
+            const [sbProds, sbCats, sbOrds] = await Promise.all([
+              sbFetchProducts(),
+              sbFetchCategories(),
+              sbFetchOrders(),
+            ]);
 
-          if (pRes.ok) {
-            const serverProds: Product[] = await pRes.json();
-            if (serverProds.length > 0) {
-              setProducts(serverProds);
-              serverProds.forEach((p) => localDB.saveProduct(p));
+            // Seed categories if empty (first launch)
+            if (sbCats.length === 0) {
+              await sbSeedCategories(DEFAULT_CATEGORIES);
+              setCategories(DEFAULT_CATEGORIES);
+              DEFAULT_CATEGORIES.forEach((c) => localDB.saveCategory(c));
+            } else {
+              setCategories(sbCats);
+              sbCats.forEach((c) => localDB.saveCategory(c));
             }
-          }
 
-          if (cRes.ok) {
-            const serverCats: Category[] = await cRes.json();
-            if (serverCats.length > 0) {
-              setCategories(serverCats);
-              serverCats.forEach((c) => localDB.saveCategory(c));
+            // Seed products if empty (first launch)
+            if (sbProds.length === 0) {
+              for (const p of DEFAULT_PRODUCTS) {
+                await sbUpsertProduct(p);
+                await localDB.saveProduct(p);
+              }
+              setProducts(DEFAULT_PRODUCTS);
+            } else {
+              setProducts(sbProds);
+              sbProds.forEach((p) => localDB.saveProduct(p));
             }
-          }
 
-          if (oRes.ok) {
-            const serverOrders: Order[] = await oRes.json();
-            // Merge server orders with local unsynced pending orders
+            // Merge server orders with local pending
             const pendingOrders = localOrds.filter((o) => o.syncStatus === 'pending_sync');
             const mergedMap = new Map<string, Order>();
-
-            serverOrders.forEach((o) => {
+            sbOrds.forEach((o) => {
               mergedMap.set(o.id, o);
               localDB.saveOrder(o);
             });
-            pendingOrders.forEach((o) => {
-              mergedMap.set(o.id, o);
-            });
+            pendingOrders.forEach((o) => mergedMap.set(o.id, o));
 
             const mergedList = Array.from(mergedMap.values()).sort(
               (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
             );
-
             setOrders(mergedList);
+          } catch (e) {
+            console.log('Supabase fetch failed, using local cache:', e);
           }
-        } catch (e) {
-          console.log('Using local offline cached data');
+        } else {
+          // ── Fallback: Express API server ────────────────────────────────────
+          try {
+            const [pRes, cRes, oRes] = await Promise.all([
+              fetch('/api/products'),
+              fetch('/api/categories'),
+              fetch('/api/orders'),
+            ]);
+
+            if (pRes.ok) {
+              const serverProds: Product[] = await pRes.json();
+              if (serverProds.length > 0) {
+                setProducts(serverProds);
+                serverProds.forEach((p) => localDB.saveProduct(p));
+              }
+            }
+            if (cRes.ok) {
+              const serverCats: Category[] = await cRes.json();
+              if (serverCats.length > 0) {
+                setCategories(serverCats);
+                serverCats.forEach((c) => localDB.saveCategory(c));
+              }
+            }
+            if (oRes.ok) {
+              const serverOrders: Order[] = await oRes.json();
+              const pendingOrders = localOrds.filter((o) => o.syncStatus === 'pending_sync');
+              const mergedMap = new Map<string, Order>();
+              serverOrders.forEach((o) => { mergedMap.set(o.id, o); localDB.saveOrder(o); });
+              pendingOrders.forEach((o) => mergedMap.set(o.id, o));
+              const mergedList = Array.from(mergedMap.values()).sort(
+                (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+              );
+              setOrders(mergedList);
+            }
+          } catch (e) {
+            console.log('Using local offline cached data');
+          }
         }
       }
     } catch (err) {
@@ -123,7 +174,6 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     refreshData();
 
-    // Subscribe to sync engine status & broadcasts
     const unsubscribe = syncEngine.subscribe(() => {
       refreshData();
     });
@@ -139,11 +189,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const updated = [...prev];
         const existing = updated[existingIndex];
         const newQty = existing.quantity + 1;
-        updated[existingIndex] = {
-          ...existing,
-          quantity: newQty,
-          itemTotal: newQty * existing.unitPrice,
-        };
+        updated[existingIndex] = { ...existing, quantity: newQty, itemTotal: newQty * existing.unitPrice };
         return updated;
       } else {
         const newItem: OrderItem = {
@@ -161,21 +207,11 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateCartQuantity = (productId: string, quantity: number) => {
-    if (quantity <= 0) {
-      removeFromCart(productId);
-      return;
-    }
+    if (quantity <= 0) { removeFromCart(productId); return; }
     setCart((prev) =>
-      prev.map((item) => {
-        if (item.productId === productId) {
-          return {
-            ...item,
-            quantity,
-            itemTotal: quantity * item.unitPrice,
-          };
-        }
-        return item;
-      })
+      prev.map((item) =>
+        item.productId === productId ? { ...item, quantity, itemTotal: quantity * item.unitPrice } : item
+      )
     );
   };
 
@@ -185,7 +221,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const clearCart = () => setCart([]);
 
-  // CREATE ORDER (Fast counter POS flow)
+  // CREATE ORDER
   const createOrder = async (details: {
     customerName?: string;
     customerPhone?: string;
@@ -224,89 +260,85 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       items: cart.map((i) => ({ ...i, orderId: tempId })),
     };
 
-    // Save locally immediately
     await localDB.saveOrder(newOrder);
     await localDB.addToSyncQueue(newOrder);
-
-    // Update state immediately for zero latency
     setOrders((prev) => [newOrder, ...prev]);
     clearCart();
 
-    // Trigger sync & broadcast
     syncEngine.broadcastOrderCreation();
     syncEngine.triggerSync();
 
     return newOrder;
   };
 
-  // UPDATE ORDER STATUS (NEW -> PREPARING -> READY -> COMPLETED)
+  // UPDATE ORDER STATUS
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
     const target = orders.find((o) => o.id === orderId || o.localId === orderId);
     if (!target) return;
 
-    const updated: Order = {
-      ...target,
-      orderStatus: status,
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Save local
+    const updated: Order = { ...target, orderStatus: status, updatedAt: new Date().toISOString() };
     await localDB.saveOrder(updated);
     setOrders((prev) => prev.map((o) => (o.id === orderId || o.localId === orderId ? updated : o)));
 
-    // Send to API if online
     if (navigator.onLine && target.syncStatus === 'synced') {
-      fetch(`/api/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderStatus: status }),
-      }).catch(() => {});
+      if (isSupabaseConfigured) {
+        sbPatchOrderStatus(orderId, status).catch(() => {});
+      } else {
+        fetch(`/api/orders/${orderId}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderStatus: status }),
+        }).catch(() => {});
+      }
     } else {
       await localDB.addToSyncQueue(updated);
       syncEngine.triggerSync();
     }
   };
 
-  // UPDATE PAYMENT STATUS (Paid / Pending)
+  // UPDATE PAYMENT STATUS
   const updatePaymentStatus = async (orderId: string, status: PaymentStatus) => {
     const target = orders.find((o) => o.id === orderId || o.localId === orderId);
     if (!target) return;
 
-    const updated: Order = {
-      ...target,
-      paymentStatus: status,
-      updatedAt: new Date().toISOString(),
-    };
-
+    const updated: Order = { ...target, paymentStatus: status, updatedAt: new Date().toISOString() };
     await localDB.saveOrder(updated);
     setOrders((prev) => prev.map((o) => (o.id === orderId || o.localId === orderId ? updated : o)));
 
     if (navigator.onLine && target.syncStatus === 'synced') {
-      fetch(`/api/orders/${orderId}/payment`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentStatus: status }),
-      }).catch(() => {});
+      if (isSupabaseConfigured) {
+        sbPatchPaymentStatus(orderId, status).catch(() => {});
+      } else {
+        fetch(`/api/orders/${orderId}/payment`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentStatus: status }),
+        }).catch(() => {});
+      }
     } else {
       await localDB.addToSyncQueue(updated);
       syncEngine.triggerSync();
     }
   };
 
-  // DELETE ORDER (Mistake removal)
+  // DELETE ORDER
   const deleteOrder = async (orderId: string) => {
     try {
       setOrders((prev) => prev.filter((o) => o.id !== orderId && o.localId !== orderId));
       await localDB.deleteOrder(orderId);
       if (navigator.onLine) {
-        fetch(`/api/orders/${orderId}`, { method: 'DELETE' }).catch(() => {});
+        if (isSupabaseConfigured) {
+          sbRemoveOrder(orderId).catch(() => {});
+        } else {
+          fetch(`/api/orders/${orderId}`, { method: 'DELETE' }).catch(() => {});
+        }
       }
     } catch (e) {
       console.error('Failed to delete order:', e);
     }
   };
 
-  // UPDATE ORDER (Customer requested changes)
+  // UPDATE ORDER
   const updateOrder = async (orderId: string, updatedFields: Partial<Order>) => {
     try {
       const now = new Date().toISOString();
@@ -323,7 +355,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         })
       );
 
-      if (navigator.onLine && updatedOrder) {
+      if (navigator.onLine && updatedOrder && !isSupabaseConfigured) {
         fetch(`/api/orders/${orderId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -335,7 +367,7 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // PRODUCT MANAGEMENT (Owner)
+  // PRODUCT MANAGEMENT (Owner only)
   const addProduct = async (productData: Omit<Product, 'id' | 'businessId' | 'createdAt'>): Promise<Product> => {
     const newProd: Product = {
       ...productData,
@@ -347,11 +379,15 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await localDB.saveProduct(newProd);
     setProducts((prev) => [...prev, newProd]);
 
-    fetch('/api/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newProd),
-    }).catch(() => {});
+    if (isSupabaseConfigured) {
+      sbUpsertProduct(newProd).catch(console.error);
+    } else {
+      fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProd),
+      }).catch(() => {});
+    }
 
     return newProd;
   };
@@ -364,17 +400,20 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await localDB.saveProduct(updated);
     setProducts((prev) => prev.map((p) => (p.id === id ? updated : p)));
 
-    fetch(`/api/products/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(productData),
-    }).catch(() => {});
+    if (isSupabaseConfigured) {
+      sbPatchProduct(id, productData).catch(console.error);
+    } else {
+      fetch(`/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(productData),
+      }).catch(() => {});
+    }
   };
 
   const toggleProductAvailability = async (id: string) => {
     const target = products.find((p) => p.id === id);
     if (!target) return;
-
     await updateProduct(id, { available: !target.available });
   };
 
@@ -382,9 +421,11 @@ export const OrderProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await localDB.deleteProduct(id);
     setProducts((prev) => prev.filter((p) => p.id !== id));
 
-    fetch(`/api/products/${id}`, {
-      method: 'DELETE',
-    }).catch(() => {});
+    if (isSupabaseConfigured) {
+      sbDeleteProduct(id).catch(console.error);
+    } else {
+      fetch(`/api/products/${id}`, { method: 'DELETE' }).catch(() => {});
+    }
   };
 
   return (

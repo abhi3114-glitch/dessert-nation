@@ -1,5 +1,5 @@
 -- DESSERT NATION ASHTA — SUPABASE CLOUD DATABASE SCHEMA
--- Execute this SQL script inside your Supabase Project's SQL Editor to enable 24/7 cloud sync.
+-- Run this in your Supabase Project → SQL Editor → New Query → Run All
 
 -- 1. CATEGORIES TABLE
 CREATE TABLE IF NOT EXISTS categories (
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS products (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL DEFAULT 'biz_dn_ashta',
-  category_id TEXT REFERENCES categories(id) ON DELETE CASCADE,
+  category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   price NUMERIC NOT NULL DEFAULT 0,
   available BOOLEAN NOT NULL DEFAULT TRUE,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
   business_id TEXT NOT NULL DEFAULT 'biz_dn_ashta',
   name TEXT NOT NULL,
   email TEXT NOT NULL,
-  phone TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
   password TEXT DEFAULT 'password123',
   role TEXT NOT NULL DEFAULT 'employee',
   active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS orders (
   business_id TEXT NOT NULL DEFAULT 'biz_dn_ashta',
   order_number SERIAL,
   customer_name TEXT NOT NULL,
-  customer_phone TEXT,
+  customer_phone TEXT DEFAULT '',
   order_type TEXT NOT NULL DEFAULT 'Dine-in',
   subtotal NUMERIC NOT NULL DEFAULT 0,
   total_amount NUMERIC NOT NULL DEFAULT 0,
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS orders (
 -- 5. ORDER ITEMS TABLE
 CREATE TABLE IF NOT EXISTS order_items (
   id TEXT PRIMARY KEY,
-  order_id TEXT REFERENCES orders(id) ON DELETE CASCADE,
+  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   product_id TEXT NOT NULL,
   product_name TEXT NOT NULL,
   unit_price NUMERIC NOT NULL DEFAULT 0,
@@ -63,15 +63,24 @@ CREATE TABLE IF NOT EXISTS order_items (
   item_total NUMERIC NOT NULL DEFAULT 0
 );
 
--- ENABLE ROW LEVEL SECURITY (RLS) & PUBLIC SYNC ACCESS FOR POS PHONES
+-- ─── ROW LEVEL SECURITY ────────────────────────────────────────────────────
+-- Enable RLS on all tables
 ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow public POS access" ON categories FOR ALL USING (true);
-CREATE POLICY "Allow public POS access" ON products FOR ALL USING (true);
-CREATE POLICY "Allow public POS access" ON users FOR ALL USING (true);
-CREATE POLICY "Allow public POS access" ON orders FOR ALL USING (true);
-CREATE POLICY "Allow public POS access" ON order_items FOR ALL USING (true);
+-- Drop old policies if re-running
+DROP POLICY IF EXISTS "Allow public POS access" ON categories;
+DROP POLICY IF EXISTS "Allow public POS access" ON products;
+DROP POLICY IF EXISTS "Allow public POS access" ON users;
+DROP POLICY IF EXISTS "Allow public POS access" ON orders;
+DROP POLICY IF EXISTS "Allow public POS access" ON order_items;
+
+-- Allow full access for all authenticated and anon clients (POS phones use anon key)
+CREATE POLICY "Allow public POS access" ON categories FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public POS access" ON products   FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public POS access" ON users      FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public POS access" ON orders     FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public POS access" ON order_items FOR ALL USING (true) WITH CHECK (true);

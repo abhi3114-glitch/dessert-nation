@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useOrders } from '../context/OrderContext';
+import { useAuth } from '../context/AuthContext';
 import { CategoryFilter } from '../components/CategoryFilter';
+import { AddProductModal } from '../components/Modals/AddProductModal';
 import { PaymentMethod, PaymentStatus, OrderType, Order } from '../types/pos';
-import { Search, Plus, Minus, CheckCircle2, QrCode, Banknote, CreditCard, ArrowRight, Utensils, AlertCircle } from 'lucide-react';
+import { Search, Plus, Minus, CheckCircle2, QrCode, Banknote, CreditCard, ArrowRight, Utensils, AlertCircle, PackagePlus } from 'lucide-react';
 
 export const PosView: React.FC = () => {
   const {
@@ -18,6 +20,8 @@ export const PosView: React.FC = () => {
     clearCart,
     createOrder,
   } = useOrders();
+  const { currentUser } = useAuth();
+  const isOwner = currentUser?.role === 'owner';
 
   // POS State
   const [customerName, setCustomerName] = useState('');
@@ -28,6 +32,7 @@ export const PosView: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -186,15 +191,28 @@ export const PosView: React.FC = () => {
             ))}
           </div>
 
-          <div className="relative w-44 sm:w-60">
-            <input
-              type="text"
-              placeholder="Search menu..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-cafe-surface border border-cafe-border rounded-sm pl-8 pr-3 py-1.5 text-xs text-cafe-text placeholder-cafe-muted focus:border-cafe-caramel"
-            />
-            <Search className="w-3.5 h-3.5 text-cafe-muted absolute left-2.5 top-2" />
+          <div className="flex items-center space-x-2">
+            <div className="relative w-36 sm:w-56">
+              <input
+                type="text"
+                placeholder="Search menu..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-cafe-surface border border-cafe-border rounded-sm pl-8 pr-3 py-1.5 text-xs text-cafe-text placeholder-cafe-muted focus:border-cafe-caramel"
+              />
+              <Search className="w-3.5 h-3.5 text-cafe-muted absolute left-2.5 top-2" />
+            </div>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setIsAddProductOpen(true)}
+                title="Add new product to menu"
+                className="flex items-center space-x-1 bg-cafe-caramel hover:bg-cafe-caramel-hover text-white font-black px-2.5 py-1.5 rounded-sm text-[11px] shadow-2xs transition shrink-0"
+              >
+                <PackagePlus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span className="hidden sm:inline">Add Item</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -453,6 +471,13 @@ export const PosView: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* Add Product Modal (Owner only) */}
+      <AddProductModal
+        isOpen={isAddProductOpen}
+        onClose={() => setIsAddProductOpen(false)}
+        productToEdit={null}
+      />
     </div>
   );
 };

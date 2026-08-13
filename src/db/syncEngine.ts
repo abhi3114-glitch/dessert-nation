@@ -1,6 +1,6 @@
 import { localDB } from './indexedDB';
 import { Order } from '../types/pos';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, sbUpsertOrder } from './supabase';
 
 export type SyncEventListener = (status: {
   isOnline: boolean;
@@ -97,44 +97,36 @@ class SyncEngine {
         return;
       }
 
-      // Direct Supabase Cloud Sync if configured
+      // ── Direct Supabase Cloud Sync ─────────────────────────────────────────
       if (isSupabaseConfigured && supabase) {
+        let synced = 0;
         for (const order of pendingOrders) {
-          const { data: dbOrder, error } = await supabase.from('orders').insert({
-            id: order.id,
-            business_id: order.businessId,
-            customer_name: order.customerName,
-            customer_phone: order.customerPhone,
-            order_type: order.orderType,
-            subtotal: order.subtotal,
-            total_amount: order.totalAmount,
-            payment_method: order.paymentMethod,
-            payment_status: order.paymentStatus,
-            order_status: order.orderStatus,
-            created_by_name: order.createdByName,
-            created_at: order.createdAt,
-          }).select().single();
-
-          if (!error && dbOrder) {
-            const updatedOrder: Order = {
-              ...order,
-              id: dbOrder.id,
-              orderNumber: dbOrder.order_number,
-              syncStatus: 'synced',
-              syncedAt: new Date().toISOString(),
-            };
-            await localDB.saveOrder(updatedOrder);
-            await localDB.removeFromSyncQueue(order.localId || order.id);
+          try {
+            const result = await sbUpsertOrder(order);
+            if (result) {
+              const updatedOrder: Order = {
+                ...order,
+                id: result.serverId,
+                orderNumber: result.orderNumber,
+                syncStatus: 'synced',
+                syncedAt: new Date().toISOString(),
+              };
+              await localDB.saveOrder(updatedOrder);
+              await localDB.removeFromSyncQueue(order.localId || order.id);
+              synced++;
+            }
+          } catch (e) {
+            console.warn('Failed to sync order:', order.id, e);
           }
         }
 
         this.lastSyncedAt = new Date().toISOString();
-        this.notifyListeners(`Synced ${pendingOrders.length} orders to Supabase Cloud ✓`);
-        this.broadcastChannel.postMessage({ type: 'SYNC_COMPLETE', count: pendingOrders.length });
+        this.notifyListeners(`Synced ${synced} order${synced !== 1 ? 's' : ''} to Supabase Cloud ✓`);
+        this.broadcastChannel.postMessage({ type: 'SYNC_COMPLETE', count: synced });
         return;
       }
 
-      // Default API Server sync (/api/sync)
+      // ── Fallback: REST API server sync (/api/sync) ─────────────────────────
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: {

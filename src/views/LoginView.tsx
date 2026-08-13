@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Lock, Phone, ArrowRight, ShieldCheck, UserCheck, Smartphone } from 'lucide-react';
+import { Lock, Phone, ArrowRight } from 'lucide-react';
 
 interface LoginViewProps {
   onSuccess: () => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onSuccess }) => {
-  const { users, login, switchUser } = useAuth();
-  const [phoneOrEmail, setPhoneOrEmail] = useState('9876543210');
-  const [password, setPassword] = useState('password123');
+  const { login } = useAuth();
+  const [phoneOrEmail, setPhoneOrEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -24,10 +24,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess }) => {
     }
   };
 
-  const handleQuickDemoSwitch = (userId: string) => {
-    switchUser(userId);
-    onSuccess();
-  };
+
 
   return (
     <div className="min-h-screen bg-cafe-bg flex flex-col items-center justify-center p-4">
@@ -105,36 +102,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess }) => {
           </button>
         </form>
 
-        {/* Quick Account Switcher for Mobile Demo */}
-        <div className="pt-2 border-t border-cafe-border space-y-2">
-          <p className="text-[9px] font-bold uppercase text-cafe-muted text-center tracking-widest">
-            ONE-TAP QUICK LOGIN (DEMO ACCOUNTS)
-          </p>
-          <div className="space-y-1.5">
-            {users.map((u) => (
-              <button
-                key={u.id}
-                onClick={() => handleQuickDemoSwitch(u.id)}
-                className="w-full flex items-center justify-between p-2 rounded-xs bg-cafe-subtle/60 border border-cafe-border hover:border-cafe-caramel/50 text-xs transition"
-              >
-                <div className="flex items-center space-x-2 text-left">
-                  {u.role === 'owner' ? (
-                    <ShieldCheck className="w-4 h-4 text-cafe-caramel shrink-0" />
-                  ) : (
-                    <UserCheck className="w-4 h-4 text-cafe-sage shrink-0" />
-                  )}
-                  <div>
-                    <p className="font-bold text-cafe-text">{u.name}</p>
-                    <p className="text-[10px] text-cafe-muted">Phone: <strong className="text-cafe-text">{u.phone}</strong> • Pass: password123</p>
-                  </div>
-                </div>
-                <span className="text-[9px] uppercase font-bold text-cafe-caramel px-2 py-0.5 rounded-xs bg-cafe-surface border border-cafe-border">
-                  {u.role}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+
       </div>
     </div>
   );

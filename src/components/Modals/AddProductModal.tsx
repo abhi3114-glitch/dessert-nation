@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useOrders } from '../../context/OrderContext';
 import { Product } from '../../types/pos';
-import { X, Plus, Image } from 'lucide-react';
+import { X, Image } from 'lucide-react';
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -12,12 +12,24 @@ interface AddProductModalProps {
 export const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, productToEdit }) => {
   const { categories, addProduct, updateProduct } = useOrders();
 
-  const [name, setName] = useState(productToEdit?.name || '');
-  const [categoryId, setCategoryId] = useState(productToEdit?.categoryId || categories[0]?.id || 'cat_waffles');
-  const [price, setPrice] = useState(productToEdit?.price ? String(productToEdit.price) : '');
-  const [imageUrl, setImageUrl] = useState(productToEdit?.imageUrl || '');
-  const [available, setAvailable] = useState(productToEdit?.available ?? true);
+  const [name, setName] = useState('');
+  const [categoryId, setCategoryId] = useState(categories[0]?.id || 'cat_waffles');
+  const [price, setPrice] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [available, setAvailable] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Reset form whenever the modal opens or productToEdit changes
+  useEffect(() => {
+    if (isOpen) {
+      setName(productToEdit?.name || '');
+      setCategoryId(productToEdit?.categoryId || categories[0]?.id || 'cat_waffles');
+      setPrice(productToEdit?.price != null ? String(productToEdit.price) : '');
+      setImageUrl(productToEdit?.imageUrl || '');
+      setAvailable(productToEdit?.available ?? true);
+      setIsSubmitting(false);
+    }
+  }, [isOpen, productToEdit, categories]);
 
   if (!isOpen) return null;
 
