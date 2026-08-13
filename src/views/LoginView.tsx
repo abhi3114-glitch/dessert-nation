@@ -59,7 +59,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess }) => {
                 required
                 value={phoneOrEmail}
                 onChange={(e) => setPhoneOrEmail(e.target.value)}
-                placeholder="e.g. 9876543210"
+                placeholder="Enter mobile number"
                 className="w-full bg-cafe-subtle border border-cafe-border rounded-xs pl-9 pr-3 py-2.5 text-cafe-text font-bold placeholder-cafe-muted focus:border-cafe-caramel"
               />
               <Phone className="w-4 h-4 text-cafe-muted absolute left-3 top-3" />
