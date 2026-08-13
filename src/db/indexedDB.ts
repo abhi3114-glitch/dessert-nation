@@ -201,6 +201,16 @@ export class LocalDatabase {
     });
   }
 
+  async deleteUser(id: string): Promise<void> {
+    const db = await this.dbPromise;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('users', 'readwrite');
+      const request = tx.objectStore('users').delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   // --- SYNC QUEUE ---
   async addToSyncQueue(order: Order): Promise<void> {
     const db = await this.dbPromise;

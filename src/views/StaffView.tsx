@@ -2,12 +2,15 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useOrders } from '../context/OrderContext';
 import { AddEmployeeModal } from '../components/Modals/AddEmployeeModal';
-import { Users, Plus, ShieldCheck, UserCheck, CheckCircle2, XCircle } from 'lucide-react';
+import { EditEmployeeModal } from '../components/Modals/EditEmployeeModal';
+import { User } from '../types/pos';
+import { Plus, Pencil } from 'lucide-react';
 
 export const StaffView: React.FC = () => {
-  const { users, toggleUserStatus, currentUser } = useAuth();
+  const { users, toggleUserStatus, currentUser, updateUser, deleteUser } = useAuth();
   const { orders = [] } = useOrders();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
 
   const isOwner = currentUser?.role === 'owner';
   const todayStr = new Date().toISOString().split('T')[0];
@@ -19,7 +22,7 @@ export const StaffView: React.FC = () => {
       <div className="flex items-center justify-between border-b border-cafe-border pb-4">
         <div>
           <h2 className="text-2xl font-black text-cafe-text">Employees</h2>
-          <p className="text-xs text-cafe-muted font-medium">Team accounts, roles & daily order metrics</p>
+          <p className="text-xs text-cafe-muted font-medium">Team accounts, roles &amp; daily order metrics</p>
         </div>
 
         {isOwner && (
@@ -41,6 +44,7 @@ export const StaffView: React.FC = () => {
             return o.createdByUserId === user.id && created.startsWith(todayStr);
           });
           const salesGeneratedToday = userOrdersToday.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+          const isSelf = user.id === currentUser?.id;
 
           return (
             <div
@@ -54,17 +58,22 @@ export const StaffView: React.FC = () => {
                   {user.name.charAt(0)}
                 </div>
                 <div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-0.5">
                     <h4 className="font-bold text-xs text-cafe-text">{user.name}</h4>
                     <span className="text-[9px] uppercase font-bold text-cafe-caramel px-1.5 py-0.2 rounded-xs bg-cafe-subtle border border-cafe-border">
                       {user.role}
                     </span>
+                    {isSelf && (
+                      <span className="text-[9px] uppercase font-bold text-cafe-sage px-1.5 py-0.2 rounded-xs bg-cafe-sage/10 border border-cafe-sage/30">
+                        You
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[11px] text-cafe-muted mt-0.5">{user.email}</p>
+                  <p className="text-[11px] text-cafe-muted mt-0.5">{user.phone || user.email}</p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-4 text-right text-xs">
+              <div className="flex items-center space-x-3 text-right text-xs">
                 <div>
                   <span className="text-[10px] text-cafe-muted block uppercase font-bold">Orders Today</span>
                   <span className="font-black text-cafe-text">{userOrdersToday.length}</span>
@@ -75,7 +84,8 @@ export const StaffView: React.FC = () => {
                   <span className="font-black text-cafe-caramel">₹{salesGeneratedToday}</span>
                 </div>
 
-                {isOwner && user.id !== currentUser?.id && (
+                {/* Active/Disable toggle — owner only, not for self */}
+                {isOwner && !isSelf && (
                   <button
                     onClick={() => toggleUserStatus(user.id)}
                     className={`px-2.5 py-1 rounded-xs font-bold text-xs border transition ${
@@ -87,6 +97,17 @@ export const StaffView: React.FC = () => {
                     {user.active ? 'Active' : 'Disabled'}
                   </button>
                 )}
+
+                {/* Edit pencil — visible to owner for anyone, or to self for own account */}
+                {(isOwner || isSelf) && (
+                  <button
+                    onClick={() => setEditingUser(user)}
+                    className="p-1.5 rounded-xs border border-cafe-border text-cafe-muted hover:text-cafe-caramel hover:border-cafe-caramel/50 transition"
+                    title="Edit account"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -94,6 +115,18 @@ export const StaffView: React.FC = () => {
       </div>
 
       <AddEmployeeModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
+
+      {editingUser && (
+        <EditEmployeeModal
+          key={editingUser.id}
+          user={editingUser}
+          isOpen={!!editingUser}
+          isSelf={editingUser.id === currentUser?.id}
+          onClose={() => setEditingUser(null)}
+          onSave={(updates) => updateUser(editingUser.id, updates)}
+          onDelete={() => deleteUser(editingUser.id)}
+        />
+      )}
     </div>
   );
 };

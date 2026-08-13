@@ -18,6 +18,8 @@ interface AuthContextType {
   switchUser: (userId: string) => void;
   addUser: (userData: { name: string; email: string; role: 'owner' | 'employee'; phone?: string; password?: string }) => Promise<User>;
   toggleUserStatus: (userId: string) => Promise<void>;
+  updateUser: (userId: string, updates: { name?: string; phone?: string; password?: string }) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -203,6 +205,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateUser = async (
+    userId: string,
+    updates: { name?: string; phone?: string; password?: string }
+  ) => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return;
+    const updatedUser = { ...target, ...updates };
+    await localDB.saveUser(updatedUser);
+    setUsers((prev) => prev.map((u) => (u.id === userId ? updatedUser : u)));
+    usersRef.current = usersRef.current.map((u) => (u.id === userId ? updatedUser : u));
+    // Update localStorage if it's the currently logged-in user
+    if (currentUser?.id === userId) {
+      setCurrentUser(updatedUser);
+      localStorage.setItem('dn_pos_current_user', JSON.stringify(updatedUser));
+    }
+    if (isSupabaseConfigured) {
+      sbUpsertUser(updatedUser).catch(console.error);
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    await localDB.deleteUser(userId);
+    const remaining = users.filter((u) => u.id !== userId);
+    setUsers(remaining);
+    usersRef.current = remaining;
+    if (isSupabaseConfigured) {
+      // soft-delete: mark inactive in supabase
+      sbUpdateUserStatus(userId, false).catch(console.error);
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -214,6 +247,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         switchUser,
         addUser,
         toggleUserStatus,
+        updateUser,
+        deleteUser,
       }}
     >
       {children}
