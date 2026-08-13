@@ -16,24 +16,29 @@ import { LoginView } from './views/LoginView';
 const AppContent: React.FC = () => {
   const { currentUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
 
-  if (!isLoggedIn) {
-    return <LoginView onSuccess={() => setIsLoggedIn(true)} />;
+  // Gate: show login if no active session
+  if (!currentUser) {
+    return <LoginView onSuccess={() => {}} />;
   }
+
+  const handleLogout = () => {
+    logout();
+    // currentUser becomes null → login screen renders automatically
+  };
 
   return (
     <div className="min-h-screen bg-cafedark-950 text-cafedark-50 font-sans flex flex-col md:flex-row antialiased">
-      {/* Desktop Left Sidebar (Section 7 & 36) */}
+      {/* Desktop Left Sidebar */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onLogout={() => setIsLoggedIn(false)}
+        onLogout={handleLogout}
       />
 
       {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Mobile Header (Section 7) */}
+        {/* Mobile Header */}
         <Navbar />
 
         {/* Dynamic View Area */}
@@ -48,7 +53,7 @@ const AppContent: React.FC = () => {
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar (Section 7) */}
+      {/* Mobile Bottom Navigation Bar */}
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
     </div>
   );
