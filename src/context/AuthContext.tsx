@@ -71,7 +71,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (currentUser) {
         const found = dbUsers.find((u) => u.id === currentUser.id);
-        if (found) {
+        if (!found || !found.active) {
+          // User was deleted or disabled — invalidate session immediately
+          setCurrentUser(null);
+          localStorage.removeItem('dn_pos_current_user');
+        } else {
+          // Refresh saved session with latest data (e.g. updated name/phone)
           setCurrentUser(found);
           localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
         }
@@ -94,10 +99,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           usersRef.current = sbUsers;
           for (const u of sbUsers) await localDB.saveUser(u);
 
-          // Update currentUser if they appear in cloud list
+          // Validate current session against cloud user list
           if (currentUser) {
             const found = sbUsers.find((u) => u.id === currentUser.id);
-            if (found) {
+            if (!found || !found.active) {
+              // Deleted or disabled on the cloud — force logout
+              setCurrentUser(null);
+              localStorage.removeItem('dn_pos_current_user');
+            } else {
+              // Sync latest data (name, phone, role changes)
               setCurrentUser(found);
               localStorage.setItem('dn_pos_current_user', JSON.stringify(found));
             }
